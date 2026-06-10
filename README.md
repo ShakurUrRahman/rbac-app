@@ -124,8 +124,8 @@ NEXTAUTH_SECRET=your-secret-here
 NEXTAUTH_URL=http://localhost:3000
 
 # Seed script
-SEED_SUPER_ADMIN_EMAIL=admin@example.com
-SEED_SUPER_ADMIN_PASSWORD=supersecurepassword
+SEED_SUPER_ADMIN_EMAIL=admin@rbac.dev
+SEED_SUPER_ADMIN_PASSWORD=ChangeMe123!
 ```
 
 ### 3. Seed the database
