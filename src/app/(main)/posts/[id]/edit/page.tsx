@@ -1,8 +1,8 @@
 import { redirect, notFound } from "next/navigation";
-import { getPostById } from "@/lib/actions/post.actions"; // Reusing your verified action
-import { getSession } from "@/lib/auth/session"; // Reusing your verified session handler
+import { getSession } from "@/lib/auth/session";
 import { canEditPost } from "@/lib/permissions";
 import PostForm from "@/components/posts/PostForm";
+import { getPostById } from "@/lib/queries/post-queries";
 
 interface EditPostPageProps {
 	params: Promise<{ id: string }>;

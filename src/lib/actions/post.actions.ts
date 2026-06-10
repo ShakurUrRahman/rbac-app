@@ -2,13 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import Post from "@/lib/db/models/Post";
+import Comment from "@/lib/db/models/Comment";
 import type { IPost } from "@/lib/db/models/Post";
 import type { IUser } from "@/lib/db/models/User";
 import { connectDB } from "@/lib/db/connection";
 import { auth } from "../auth/auth";
 import { PostSchema } from "../validations/post.schema";
 import type { SessionUser } from "@/types";
-import { canEditPost } from "@/lib/permissions";
+import { canEditPost, canDeletePost } from "@/lib/permissions";
 
 interface ActionResult {
 	success: boolean;
@@ -21,9 +22,26 @@ type PostWithAuthor = Omit<IPost, "author"> & {
 	author: Pick<IUser, "_id" | "name" | "role">;
 };
 
+// ─── Shared helper ────────────────────────────────────────────────────────────
+
+/** Map the auth() session to the flat SessionUser shape expected by permissions */
+function toSessionUser(session: {
+	user: { id?: unknown; role?: unknown; name?: unknown; email?: unknown };
+}): SessionUser {
+	return {
+		id: session.user.id as string,
+		role: session.user.role as string,
+		name: session.user.name as string,
+		email: session.user.email as string,
+	};
+}
+
+// ─── Create ───────────────────────────────────────────────────────────────────
+
 /**
- * Create a new post (server action)
- * Only regular_user, moderator, and super_admin can create posts
+ * Create a new post.
+ * Only regular_user can create posts — moderators and super_admins cannot,
+ * per the project spec: "Only regular_user can create posts."
  */
 export async function createPost(
 	_prevState: ActionResult,
@@ -38,11 +56,11 @@ export async function createPost(
 		};
 	}
 
-	const allowedRoles = ["regular_user", "moderator", "super_admin"];
-	if (!allowedRoles.includes(session.user.role as string)) {
+	// Restricted to regular_user only — spec is explicit on this
+	if (session.user.role !== "regular_user") {
 		return {
 			success: false,
-			error: "You do not have permission to create posts.",
+			error: "Only regular users can create posts.",
 		};
 	}
 
@@ -53,8 +71,9 @@ export async function createPost(
 
 	const parsed = PostSchema.safeParse(raw);
 	if (!parsed.success) {
-		const fieldErrors = parsed.error.flatten().fieldErrors;
-		const firstError = Object.values(fieldErrors)[0]?.[0];
+		const firstError = Object.values(
+			parsed.error.flatten().fieldErrors,
+		)[0]?.[0];
 		return { success: false, error: firstError || "Validation failed." };
 	}
 
@@ -62,13 +81,11 @@ export async function createPost(
 
 	try {
 		await connectDB();
-
 		const post = await Post.create({
 			title,
 			content,
 			author: session.user.id,
 		});
-
 		revalidatePath("/posts");
 		return { success: true, postId: post._id.toString() };
 	} catch (err) {
@@ -80,8 +97,12 @@ export async function createPost(
 	}
 }
 
+// ─── Update ───────────────────────────────────────────────────────────────────
+
 /**
- * Update an existing post (server action)
+ * Update an existing post.
+ * Only the post owner (regular_user) may edit — moderators/super_admins can
+ * delete but not edit others' posts.
  */
 export async function updatePost(
 	_prevState: ActionResult,
@@ -127,15 +148,7 @@ export async function updatePost(
 			};
 		}
 
-		// ✅ Map auth() result to flat SessionUser before passing to permission helper
-		const sessionUser: SessionUser = {
-			id: session.user.id as string,
-			role: session.user.role as string,
-			name: session.user.name as string,
-			email: session.user.email as string,
-		};
-
-		if (!canEditPost(sessionUser, post as IPost)) {
+		if (!canEditPost(toSessionUser(session), post as IPost)) {
 			return {
 				success: false,
 				error: "You do not have permission to edit this post.",
@@ -157,42 +170,62 @@ export async function updatePost(
 	}
 }
 
+// ─── Delete ───────────────────────────────────────────────────────────────────
+
 /**
- * Get all posts with author information
- * Sorted by most recent first
+ * Delete a post and cascade-delete all its comments.
+ *
+ * Who can delete:
+ *  - super_admin  → any post
+ *  - moderator    → any post
+ *  - regular_user → only their own post
+ *  - guest        → never
  */
-export async function getPosts(): Promise<PostWithAuthor[]> {
-	try {
-		await connectDB();
+export async function deletePost(postId: string): Promise<ActionResult> {
+	const session = await auth();
 
-		const posts = await Post.find()
-			.populate("author", "name role")
-			.sort({ createdAt: -1 })
-			.lean();
-
-		return JSON.parse(JSON.stringify(posts)) as PostWithAuthor[];
-	} catch (err) {
-		console.error("[getPosts]", err);
-		return [];
+	if (!session?.user?.id) {
+		return {
+			success: false,
+			error: "You must be logged in to delete a post.",
+		};
 	}
-}
 
-/**
- * Get a single post by ID with author information
- */
-export async function getPostById(id: string): Promise<PostWithAuthor | null> {
+	if (!postId) {
+		return { success: false, error: "Missing post identifier." };
+	}
+
 	try {
 		await connectDB();
 
-		const post = await Post.findById(id)
-			.populate("author", "name role")
-			.lean();
+		const post = await Post.findById(postId).lean();
+		if (!post) {
+			return {
+				success: false,
+				error: "Post not found or already deleted.",
+			};
+		}
 
-		if (!post) return null;
+		if (!canDeletePost(toSessionUser(session), post as IPost)) {
+			return {
+				success: false,
+				error: "You do not have permission to delete this post.",
+			};
+		}
 
-		return JSON.parse(JSON.stringify(post)) as PostWithAuthor;
+		// Cascade: remove the post and all comments in parallel
+		await Promise.all([
+			Post.findByIdAndDelete(postId),
+			Comment.deleteMany({ post: postId }),
+		]);
+
+		revalidatePath("/posts");
+		return { success: true };
 	} catch (err) {
-		console.error("[getPostById]", err);
-		return null;
+		console.error("[deletePost]", err);
+		return {
+			success: false,
+			error: "Failed to delete the post. Please try again.",
+		};
 	}
 }

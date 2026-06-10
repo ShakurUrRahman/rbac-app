@@ -2,12 +2,12 @@
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getPostById } from "@/lib/actions/post.actions";
 import { getSession } from "@/lib/auth/session";
 import { canEditPost, canDeletePost } from "@/lib/permissions";
 import DeletePostButton from "@/components/posts/DeletePostButton";
 import RoleBadge from "@/components/ui/RoleBadge";
 import CommentSection from "@/components/comments/CommentSection";
+import { getPostById } from "@/lib/queries/post-queries";
 
 interface Props {
 	params: Promise<{ id: string }>;
@@ -95,7 +95,7 @@ export default async function PostDetailPage({ params }: Props) {
 										<span className="text-sm font-medium text-zinc-200">
 											{author.name}
 										</span>
-										{/* <RoleBadge role={author.role as any} /> */}
+										<RoleBadge role={author.role as any} />
 									</div>
 									<p className="text-xs text-zinc-500 mt-0.5">
 										{formattedDate} · {formattedTime}
@@ -127,11 +127,11 @@ export default async function PostDetailPage({ params }: Props) {
 											Edit
 										</Link>
 									)}
-									{/* {showDelete && (
+									{showDelete && (
 										<DeletePostButton
 											postId={post._id.toString()}
 										/>
-									)} */}
+									)}
 								</div>
 							)}
 						</div>

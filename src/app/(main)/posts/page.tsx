@@ -1,7 +1,7 @@
-import { getSession } from "@/lib/auth/session";
-import { getPosts } from "@/lib/actions/post.actions";
 import Link from "next/link";
 import PostCard from "@/components/posts/PostCard";
+import { getPosts } from "@/lib/queries/post-queries";
+import { getSession } from "@/lib/auth/session";
 
 export const metadata = {
 	title: "Posts",
@@ -10,16 +10,14 @@ export const metadata = {
 
 export default async function PostsPage() {
 	const session = await getSession();
-	const posts = await getPosts();
+	const { posts } = await getPosts(); // ← destructure here
 
-	// Determine if user can create posts
 	const canCreatePost =
 		session &&
 		["regular_user", "moderator", "super_admin"].includes(session.role);
 
 	return (
 		<main className="min-h-screen bg-[#0d0d0d]">
-			{/* Hero Section */}
 			<div className="bg-gradient-to-b from-zinc-900 to-zinc-900/50 border-b border-zinc-800 px-4 py-12">
 				<div className="max-w-4xl mx-auto">
 					<h1 className="text-4xl font-bold text-zinc-100 mb-3 tracking-tight">
@@ -29,7 +27,6 @@ export default async function PostsPage() {
 						Read and share ideas with our community members
 					</p>
 
-					{/* Create Post Button */}
 					{canCreatePost ? (
 						<Link
 							href="/posts/new"
@@ -38,17 +35,18 @@ export default async function PostsPage() {
 							+ Create Post
 						</Link>
 					) : (
-						<Link
-							href="/login"
-							className="inline-flex items-center px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium transition-colors"
-						>
-							Sign in to create posts
-						</Link>
+						!session && (
+							<Link
+								href="/login"
+								className="inline-flex items-center px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-medium transition-colors"
+							>
+								Sign in to create posts
+							</Link>
+						)
 					)}
 				</div>
 			</div>
 
-			{/* Posts List */}
 			<div className="max-w-4xl mx-auto px-4 py-12">
 				{posts.length > 0 ? (
 					<div className="space-y-4">
