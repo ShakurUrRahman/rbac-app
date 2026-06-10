@@ -56,14 +56,6 @@ export async function createPost(
 		};
 	}
 
-	// Restricted to regular_user only — spec is explicit on this
-	if (session.user.role !== "regular_user") {
-		return {
-			success: false,
-			error: "Only regular users can create posts.",
-		};
-	}
-
 	const raw = {
 		title: formData.get("title"),
 		content: formData.get("content"),
